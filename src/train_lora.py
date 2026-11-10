@@ -47,14 +47,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=TARGET_MODEL)
     ap.add_argument("--out", default=os.path.join(OUTPUTS_DIR, "adapter"))
-    ap.add_argument("--epochs", type=float, default=3)
+    ap.add_argument("--epochs", type=float, default=2)
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--rank", type=int, default=16)
     ap.add_argument("--alpha", type=int, default=32)
     ap.add_argument("--dropout", type=float, default=0.05)
-    ap.add_argument("--bsz", type=int, default=4)
-    ap.add_argument("--grad_accum", type=int, default=4)
+    ap.add_argument("--bsz", type=int, default=2)
+    ap.add_argument("--grad_accum", type=int, default=8)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--max_steps", type=int, default=-1, help="smoke tests only")
+    ap.add_argument("--grad_ckpt", action="store_true", help="gradient checkpointing (less memory, slower)")
     args = ap.parse_args()
 
     random.seed(args.seed); np.random.seed(args.seed); torch.manual_seed(args.seed)
@@ -68,16 +70,23 @@ def main():
           f"truncated={sum(x['dropped'] > 0 for x in train + val)}")
 
     use_cuda = torch.cuda.is_available()
-    bf16 = use_cuda and torch.cuda.is_bf16_supported()
-    # fp32 master weights for the frozen base on T4 (no bf16) keeps fp16 AMP stable.
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model, torch_dtype=torch.bfloat16 if bf16 else torch.float32, attn_implementation="sdpa")
+    # native bf16 only on Ampere+ (T4/GTX16xx = Turing emulate it slowly) -> fp16 there
+    bf16 = use_cuda and torch.cuda.get_device_capability(0)[0] >= 8
+    # Frozen base weights in half precision (fp16 on T4, which has no bf16) to fit 16 GB and
+    # run fast; PEFT up-casts the trainable LoRA matrices to fp32 (autocast_adapter_dtype=True),
+    # so fp16 AMP + GradScaler only ever unscale fp32 gradients. (A first attempt with an fp32
+    # base and batch 4 ran out of memory on the T4: the 4x649x151936 logits alone are ~1.6 GB.)
+    half = torch.bfloat16 if bf16 else (torch.float16 if use_cuda else torch.float32)
+    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=half, attn_implementation="sdpa")
     model.config.use_cache = False
+    if args.grad_ckpt:
+        model.gradient_checkpointing_enable()
+        model.enable_input_require_grads()
     lcfg = LoraConfig(r=args.rank, lora_alpha=args.alpha, lora_dropout=args.dropout, bias="none",
                       task_type="CAUSAL_LM",
                       target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
                                       "gate_proj", "up_proj", "down_proj"])
-    model = get_peft_model(model, lcfg)
+    model = get_peft_model(model, lcfg, autocast_adapter_dtype=True)
     model.print_trainable_parameters()
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
@@ -88,8 +97,8 @@ def main():
         per_device_train_batch_size=args.bsz, per_device_eval_batch_size=args.bsz,
         gradient_accumulation_steps=args.grad_accum, learning_rate=args.lr,
         lr_scheduler_type="cosine", warmup_ratio=0.05, weight_decay=0.0,
-        logging_steps=5, eval_strategy="steps", eval_steps=10, save_strategy="steps",
-        save_steps=10, save_total_limit=2, load_best_model_at_end=True,
+        logging_steps=5, eval_strategy="steps", eval_steps=15, save_strategy="steps",
+        save_steps=15, max_steps=args.max_steps, save_total_limit=2, load_best_model_at_end=True,
         metric_for_best_model="eval_loss", greater_is_better=False,
         fp16=use_cuda and not bf16, bf16=bf16, report_to=[], seed=args.seed,
         remove_unused_columns=False, dataloader_num_workers=0)

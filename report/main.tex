@@ -27,7 +27,12 @@ principles: an explicit key/value-cached decoder validated token-for-token again
 uncached reference, a tiled online-softmax attention kernel validated against reference
 scaled dot-product attention, and greedy speculative decoding with a fine-tuned 0.5B draft
 model and explicit cache rollback. All components are exposed in a browser application that
-produces downloadable, provenance-stamped screening reports.
+produces downloadable, provenance-stamped screening reports. On the held-out test patients, fine-tuning
+raises accuracy from 0.170 to 0.704, macro-F1 from 0.158 to 0.434 and evidence micro-F1 from 0.183 to 0.545.
+The adapted model nevertheless collapses towards majority labels for exclusion criteria. The cached decoder is
+token-identical to the reference and 2--7$\times$ faster. The tiled kernel matches reference attention to fp16
+precision with linear instead of quadratic memory. Speculative decoding is exact but 6--26\% slower on a T4,
+and we explain why.
 \end{abstract}
 \begin{IEEEkeywords}
 clinical trial matching, large language models, LoRA, KV cache, online softmax, FlashAttention, speculative decoding
@@ -148,7 +153,7 @@ Role & \textbf{target} & \textbf{draft} & rejected & rejected\\\bottomrule
 We use LoRA on all attention and MLP projections. The objective is causal-LM cross-entropy computed
 \emph{only on the answer tokens} (prompt tokens masked with $-100$), so capacity is spent on the
 label/evidence decision, not on reproducing notes. Table~\ref{tab:train} lists the configuration.
-The checkpoint with the lowest validation loss (evaluated every 10 steps) is kept. All choices were made
+The checkpoint with the lowest validation loss (evaluated every 15 steps) is kept. All choices were made
 on validation. The test split was evaluated exactly once per model, after training. The same recipe
 fine-tunes the 0.5B draft, which raises its agreement with the fine-tuned target (Section~\ref{sec:spec}).
 
@@ -253,7 +258,14 @@ memory comes from \texttt{torch.cuda.max\_memory\_allocated}.
 \subsection{Fine-Tuning and Before/After Comparison}
 Fig.~\ref{fig:curve} shows the training and validation loss. Table~\ref{tab:ba} and Fig.~\ref{fig:ba} compare
 the zero-shot and LoRA models on identical validation and test examples.
-RESULTS_DISCUSSION_BA
+The zero-shot model reaches only 0.170 test accuracy (macro-F1 0.158). It answers \emph{not applicable}
+for most exclusion criteria (exclusion accuracy 0.061) and cites nearly every sentence. Training took 74
+optimizer steps (6.7\,min on a T4, peak 11.1\,GB). Validation loss fell from 0.149 to 0.131 at step 60,
+the selected checkpoint, while training loss kept dropping to about 0.10. That gap signals the onset of
+overfitting on only 602 examples. After LoRA, test accuracy rises to 0.704 and macro-F1 to 0.434, and
+validation shows the same picture (0.709 / 0.342). Neither model produced a single parse error, so the
+JSON schema in the prompt was enough to fix the output \emph{format}. Fine-tuning changed the
+\emph{decisions}.
 
 \begin{figure}[t]\centering\fig{training_curve_adapter.png}{\columnwidth}
 \caption{LoRA training and validation loss (answer tokens only).}\label{fig:curve}\end{figure}
@@ -270,7 +282,15 @@ Split & Model & Acc. & Macro-F1 & Incl. Acc. & Incl. M-F1 & Excl. Acc. & Excl. M
 \subsection{Detailed Classification Metrics (held-out test)}
 Table~\ref{tab:perclass} gives per-class metrics and Fig.~\ref{fig:cm} the confusion matrices of the
 fine-tuned model on the test split.
-RESULTS_DISCUSSION_CLASS
+The gap between accuracy and macro-F1 reveals \textbf{majority-class collapse}. For exclusion
+criteria the model predicts \emph{not excluded} for all 131 test records (recall 1.00, precision 0.69).
+\emph{Not enough information} and \emph{not applicable} are never predicted for exclusions. For inclusion
+criteria, \emph{included} has precision 1.00 but recall 0.59, and \emph{not enough information} (recall
+1.00) absorbs every \emph{not included} and \emph{not applicable} case. Always answering the majority label
+per criterion type would give 0.626 test accuracy, so the fine-tuned model beats this baseline only through
+the inclusion criteria. The cause is the extreme imbalance of the training split (292 \emph{not excluded}
+vs.\ 8 \emph{excluded}, 5 inclusion \emph{not applicable}) under an unweighted cross-entropy objective.
+Class-weighted loss or oversampling of minority labels is the most direct remedy (Section~VII).
 
 \begin{table}[t]\centering\caption{Per-class test metrics (fine-tuned).}\label{tab:perclass}
 \resizebox{\columnwidth}{!}{\begin{tabular}{llcccc}\toprule
@@ -284,7 +304,12 @@ Type & Class & P & R & F1 & Support\\\midrule
 
 \subsection{Evidence Sentence Localization}
 Table~\ref{tab:evid} reports evidence retrieval metrics.
-RESULTS_DISCUSSION_EVID
+Evidence localization improves the most. Test micro-F1 rises from 0.183 to 0.545 and macro-F1 over
+records with gold evidence from 0.297 to 0.576. The gain comes from \emph{precision} (0.106$\rightarrow$0.519)
+at similar recall (0.670$\rightarrow$0.574). The base model cites indiscriminately, while the adapted model
+cites selectively and leaves the list empty for 87.6\% of records whose gold evidence is empty (base: 44.8\%).
+Because every cited ID indexes an original note sentence, each prediction in the application links back to
+verbatim evidence.
 
 \begin{table*}[t]\centering\caption{Evidence-sentence retrieval. Macro averages over records with non-empty gold; ``empty agr.'' = share of empty-gold records with no citation.}\label{tab:evid}
 \begin{tabular}{llccccccc}\toprule
@@ -295,7 +320,20 @@ Split & Model & Micro P & Micro R & Micro F1 & Macro P & Macro R & Macro F1 & Em
 \subsection{Error Analysis}
 Table~\ref{tab:errors} lists representative test errors, sampled per category. The full cases with
 evidence text are in \texttt{results/error\_analysis.md}.
-RESULTS_DISCUSSION_ERR
+On the 206 test records the error categories are: \emph{unsupported} decisive label where the gold is
+\emph{not enough information} (28), \emph{missed information} (18), confusions involving \emph{not applicable}
+(15), and correct label with disjoint evidence (14). There were no direct contradictions (e.g.\ included
+$\leftrightarrow$ not included) and no parse errors. E1--E2 are the most important failure. Criteria the note
+never mentions (pre-operative GFR, previous axillary surgery) are labelled \emph{not excluded} with
+\emph{no cited sentence}. This treats absence of evidence as proof, which is exactly the behaviour the task
+warns against, and it inflates a ``potentially eligible'' aggregate. The application therefore marks every
+decisive label without a citation as weakly supported. E3--E4 are the opposite case: the expert inferred
+\emph{not included} (the patient underwent catheterization, not endarterectomy) without citing a sentence,
+and the model abstained. E5--E6 show that \emph{not applicable} vs.\ \emph{not excluded}/\emph{not enough
+information} is partly a matter of annotator convention (pregnancy for a 67-year-old woman; birth control for
+a sexually inactive adolescent), so some of these ``errors'' are label ambiguity. E7--E8 have the right label
+but omit the age sentence the expert cited, which shows that evidence recall suffers on ``obviously
+satisfied'' criteria.
 
 \begin{table*}[t]\centering\caption{Representative test-set errors of the fine-tuned model.}\label{tab:errors}
 \resizebox{\textwidth}{!}{\begin{tabular}{llllll}\toprule
@@ -305,7 +343,16 @@ ID & Category & Type & Criterion & Gold & Predicted\\\midrule
 
 \subsection{KV-Cached Decoding}
 Table~\ref{tab:kv} and Fig.~\ref{fig:kv} compare the cached and reference decoders.
-RESULTS_DISCUSSION_KV
+The cached decoder reproduces the reference tokens exactly in all three settings (370/32, 517/64,
+1043/128 input/output tokens). That holds even though the smallest top-2 logit margin seen was 0.031, close to
+fp16 resolution, so no mismatch needed investigating. Prefill costs are equal (one forward pass over the prompt,
+59--213\,ms). The decode phase differs sharply. With the cache, throughput stays flat at about 30\,tok/s regardless
+of context length. Without it, throughput falls from 14.2 to 8.9 to 4.1\,tok/s because every step re-encodes the
+whole sequence ($O(T^2)$ total work). End-to-end speed-ups are 2.0$\times$, 3.3$\times$ and 7.0$\times$ and
+grow with length. Peak memory is dominated by the 3.07\,GB of fp16 weights. The cache itself is only
+11--32\,MB, matching the analytic 28\,KB/token of GQA with 2 KV heads, so the memory curves of the two paths
+nearly coincide (Fig.~\ref{fig:kv}). Even cached decoding (33\,ms/token) is well above the bandwidth bound
+(3.1\,GB / 320\,GB/s $\approx$ 10\,ms). At batch size 1, per-layer kernel-launch and Python overhead dominate.
 
 \begin{table}[t]\centering\caption{KV cache vs.\ no-cache greedy decoding (fine-tuned target, T4, fp16, median of 3).}\label{tab:kv}
 \resizebox{\columnwidth}{!}{\begin{tabular}{llccccc}\toprule
@@ -318,7 +365,17 @@ In/Out & Mode & Prefill ms & Decode s & Decode tok/s & Peak MB & Equal\\\midrule
 
 \subsection{Tiled Attention}
 Table~\ref{tab:attn} validates the tiled kernel and Table~\ref{tab:attnperf} / Fig.~\ref{fig:attn} compare cost.
-RESULTS_DISCUSSION_ATTN
+All eight cases pass, including non-multiple-of-block lengths, a non-causal case, single-token decode
+($L_q{=}1$) and a 5-token speculative verification block with bottom-right causal alignment. The maximum
+error is $3.6\times10^{-7}$ in fp32 and $9.7\times10^{-4}$ in fp16. The latter equals the error of PyTorch's
+fused SDPA against the same fp32 reference ($9.9\times10^{-4}$), i.e.\ fp16 rounding. In memory the tiled kernel
+behaves as theory predicts. The reference's peak grows quadratically (33\,MB$\rightarrow$2.38\,GB from $L$=256 to
+4096) because it materializes the $L\times L$ score matrix. The tiled version grows linearly (25$\rightarrow$48\,MB),
+close to the fused kernel (44\,MB). In time it is 3.7--4.6$\times$ \emph{slower} than the reference and up to
+160$\times$ slower than fused SDPA. The reasons: it issues hundreds of small matmul, exp and max kernels from a
+Python loop; every tile round-trips through GPU global memory instead of staying in on-chip SRAM/registers; and
+nothing is fused. FlashAttention~\cite{dao2022flashattention} performs the same recurrence inside one fused
+kernel, which is why its speed and memory benefits coincide.
 
 \begin{table}[t]\centering\caption{Tiled vs.\ reference attention error (C=causal, F=full; reference in fp32).}\label{tab:attn}
 \resizebox{\columnwidth}{!}{\begin{tabular}{lcccccc}\toprule
@@ -337,7 +394,20 @@ $L$ & Ref ms & Ref MB & Tiled ms & Tiled MB & SDPA ms & SDPA MB\\\midrule
 
 \subsection{Speculative Decoding}\label{sec:spec}
 Table~\ref{tab:spec} and Fig.~\ref{fig:spec} report token equality, acceptance and speed.
-RESULTS_DISCUSSION_SPEC
+All 6 configurations produce output token-identical to greedy target decoding on all 12 prompts,
+including iterations with rejections. This confirms the accept/correct logic and the cache rollback.
+Fine-tuning the draft on the same data raises acceptance from 0.73/0.67/0.61 to 0.90/0.86/0.83 for
+$k$=2/4/6, and up to 4.9 tokens are accepted per target pass. Yet every configuration is \emph{slower} than
+plain greedy decoding (0.74--0.94$\times$). The best case is the fine-tuned draft with $k$=2 at 25.9 vs.\
+27.6\,tok/s. The timing breakdown explains why. For the fine-tuned draft at $k$=4, drafting takes 4.3\,s
+against 1.5\,s of verification. Under the model of~\cite{leviathan2023fast}, the expected tokens per iteration
+$(1-\alpha^{k+1})/(1-\alpha)$ must exceed the relative iteration cost $ck+1$, where $c$ is the draft-to-target
+per-token cost ratio. With $\alpha$=0.86 and $k$=4 this needs $c<0.70$. At batch size 1 on a T4, though, both
+models are dominated by per-layer launch overhead, and the 24-layer draft is nearly as slow per token as the
+28-layer target ($c\approx0.7$--$0.8$). The JSON answers are also short (about 15 tokens), so the second prefill
+and per-iteration bookkeeping weigh heavily. A speed-up would need a much cheaper draft (a few layers, or
+prompt-lookup $n$-grams) or a larger, memory-bound target such as a 7B model, where $c$ falls to about 0.1.
+The draft adds about 1\,GB of weights, and the cache overhead is negligible.
 
 \begin{table*}[t]\centering\caption{Greedy speculative decoding vs.\ greedy target decoding (same prompts; draft Qwen2.5-0.5B-Instruct, base or LoRA-tuned).}\label{tab:spec}
 \begin{tabular}{lcccccccc}\toprule
@@ -358,14 +428,20 @@ Fig.~\ref{fig:app} shows the screening and benchmark views on an unseen validati
 quantization would also perturb the speculative equality test), a classification head (rejected: it
 cannot emit evidence IDs and would not exercise autoregressive decoding), and label-before-evidence
 ordering (rejected: the label should be conditioned on the cited evidence).
-\emph{Difficulties:} T4 GPUs lack bf16, so we trained with fp32 frozen weights and fp16 autocast. The
+\emph{Difficulties:} the first training run (fp32 frozen base, batch 4) ran out of memory on the 16\,GB T4.
+The logits tensor $4\times649\times151{,}936$ alone needs about 1.6\,GB, and each step took 21\,s. The final
+configuration stores the frozen base in fp16 (the T4 has no native bf16), up-casts only the LoRA matrices to
+fp32 for fp16 mixed precision, and uses batch 2 with 8 accumulation steps (peak 11.1\,GB). The
 4\,GB local GPU cannot hold target and draft together in fp16, so the application places the draft on the
 CPU when memory is short, which makes local speculation slower than on the T4. One dataset row has a null
 criterion. A newer \texttt{transformers} release changed the cache internals, so versions are pinned.
 
 \section{Limitations}
 The test set has only 8 patients (206 criteria) and no \emph{excluded} example, so the metrics have
-high variance and some per-class scores are undefined. The SIGIR notes are short, synthetic-style
+high variance and some per-class scores are undefined. The adapted model collapses to majority labels for
+exclusion criteria and sometimes treats unmentioned conditions as \emph{not excluded}. Class-weighted loss,
+oversampling, and an explicit abstention rule for uncited decisive labels are the next steps. Hyperparameters
+were not searched beyond validation-loss checkpoint selection because of the time budget. The SIGIR notes are short, synthetic-style
 summaries; real EHR notes are longer and noisier, and the free-text sentence splitter is heuristic.
 Explanations are templated from evidence rather than generated, which guarantees grounding but
 limits their reasoning content. The educational tiled kernel runs in Python loops and is slower than
@@ -374,7 +450,9 @@ screening prototype and must not be used for enrollment decisions.
 
 \section{Conclusion}
 A 1.5B-parameter open model adapted with LoRA on 602 criterion annotations yields a structured,
-evidence-citing criterion matcher that runs on a 4\,GB consumer GPU. The KV-cached, tiled-attention
+evidence-citing criterion matcher that runs on a 4\,GB consumer GPU. It improves held-out accuracy from 0.17
+to 0.70 and evidence F1 from 0.18 to 0.55, but its minority-class recall, especially for exclusion criteria,
+remains the main weakness. The KV-cached, tiled-attention
 and speculative decoders were implemented from first principles and validated for exact or
 tolerance-level agreement with their references, and the measurements explain when each one helps.
 

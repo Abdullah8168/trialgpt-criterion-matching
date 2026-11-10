@@ -1,0 +1,90 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "adapter": "outputs/adapter",
+  "device": "cuda",
+  "gpu": "Tesla T4",
+  "dtype": "torch.float16",
+  "repeats": 3,
+  "warmup_runs": 1,
+  "timing": "time.perf_counter with torch.cuda.synchronize; median of repeats",
+  "results": [
+    {
+      "input_tokens": 370,
+      "output_tokens": 32,
+      "equal": true,
+      "first_mismatch": null,
+      "margin_at_mismatch": null,
+      "min_margin_kv": 0.03125,
+      "kv": {
+        "prefill_s": 0.05921439300027487,
+        "decode_s": 1.0497525339997082,
+        "total_s": 1.1063546669997777,
+        "decode_tok_per_s": 29.530769391797072,
+        "e2e_tok_per_s": 28.9238170674309,
+        "peak_mem_mb": 3074.29150390625,
+        "cache_mb": 10.96484375
+      },
+      "nocache": {
+        "prefill_s": 0.04932191800025976,
+        "decode_s": 2.182417082000029,
+        "total_s": 2.2317174909999267,
+        "decode_tok_per_s": 14.204434274126337,
+        "e2e_tok_per_s": 14.338732446669278,
+        "peak_mem_mb": 3072.9609375
+      },
+      "speedup_total": 2.017180889245867
+    },
+    {
+      "input_tokens": 517,
+      "output_tokens": 64,
+      "equal": true,
+      "first_mismatch": null,
+      "margin_at_mismatch": null,
+      "min_margin_kv": 0.078125,
+      "kv": {
+        "prefill_s": 0.0986513789998753,
+        "decode_s": 2.098886408999988,
+        "total_s": 2.197537787999863,
+        "decode_tok_per_s": 30.015916883284923,
+        "e2e_tok_per_s": 29.123503745640246,
+        "peak_mem_mb": 3120.3154296875,
+        "cache_mb": 15.859375
+      },
+      "nocache": {
+        "prefill_s": 0.09385281999993822,
+        "decode_s": 7.115100244000132,
+        "total_s": 7.20895306400007,
+        "decode_tok_per_s": 8.85440792673656,
+        "e2e_tok_per_s": 8.877849450789457,
+        "peak_mem_mb": 3124.8369140625
+      },
+      "speedup_total": 3.280468305649231
+    },
+    {
+      "input_tokens": 1043,
+      "output_tokens": 128,
+      "equal": true,
+      "first_mismatch": null,
+      "margin_at_mismatch": null,
+      "min_margin_kv": 0.03125,
+      "kv": {
+        "prefill_s": 0.21274762799976088,
+        "decode_s": 4.192825780000021,
+        "total_s": 4.405573407999782,
+        "decode_tok_per_s": 30.289834747199862,
+        "e2e_tok_per_s": 29.054106729347303,
+        "peak_mem_mb": 3288.27197265625,
+        "cache_mb": 31.9921875
+      },
+      "nocache": {
+        "prefill_s": 0.1980460419999872,
+        "decode_s": 30.60337157799995,
+        "total_s": 30.758366929999738,
+        "decode_tok_per_s": 4.149869555264863,
+        "e2e_tok_per_s": 4.161469309840276,
+        "peak_mem_mb": 3298.4423828125
+      },
+      "speedup_total": 6.981694340661242
+    }
+  ]
+}

@@ -9,3 +9,4 @@ report/*.out
 report/*.bbl
 report/*.blg
 data/raw/
+outputs/

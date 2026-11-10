@@ -1,0 +1,11 @@
+Base model & Qwen/Qwen2.5-1.5B-Instruct \\
+Method & LoRA, r=16, $\alpha$=32, dropout=0.05 \\
+Target modules & q,k,v,o,gate,up,down projections \\
+Trainable / total params & 18.46M / 1.562B \\
+Optimizer / LR & AdamW, 0.0002, cosine, 5\% warm-up \\
+Batch & 2 $\times$ 8 accumulation = 16 \\
+Epochs & 2 (best val-loss checkpoint) \\
+Precision & fp16-amp/fp32-master \\
+Hardware & Tesla T4, peak 11.1 GB \\
+Training time & 6.7 min \\
+Best val loss & 0.1308 \\

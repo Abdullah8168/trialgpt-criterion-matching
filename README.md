@@ -56,7 +56,7 @@ exclusion ∈ {excluded, not excluded, not enough information, not applicable}.
 ## Run the application
 - **Windows:** double-click `start_app.bat`. **Linux/macOS:** `./start_app.sh`.
 - The launcher creates the environment, downloads the adapters if they are missing, and opens <http://127.0.0.1:7860>.
-- Adapter download: `python scripts/download_weights.py` (set `HF_ADAPTER_REPO`).
+- Adapter weights: https://huggingface.co/Abdullah8168/trialgpt-qwen2.5-lora (`python scripts/download_weights.py` fetches them into `outputs/`).
 - Hardware: a GPU with 4 GB or more runs the target model in fp16. If GPU memory is short, the draft model is placed
   on the CPU automatically. CPU-only also works, but it is slow.
 

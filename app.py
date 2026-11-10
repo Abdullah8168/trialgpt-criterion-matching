@@ -18,7 +18,22 @@ import time
 import traceback
 
 import gradio as gr
+import gradio_client.utils as _gcu
 import torch
+
+# Compatibility patch: gradio 4.44 + pydantic>=2.11 emit JSON schemas with boolean
+# sub-schemas (e.g. additionalProperties: true) that gradio_client cannot parse, which
+# crashes the /info route and makes launch() wrongly report "localhost is not accessible".
+_orig_schema_to_type = _gcu._json_schema_to_python_type
+
+
+def _safe_schema_to_type(schema, defs=None):
+    if isinstance(schema, bool):
+        return "Any"
+    return _orig_schema_to_type(schema, defs)
+
+
+_gcu._json_schema_to_python_type = _safe_schema_to_type
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(ROOT, "src"))

@@ -6,6 +6,10 @@ peft==0.13.2
 accelerate==1.1.1
 datasets==3.1.0
 gradio==4.44.1
+# gradio 4.44 needs these older web deps (newer fastapi/starlette/pydantic break it)
+fastapi==0.112.2
+starlette==0.38.6
+pydantic==2.10.6
 scikit-learn
 pandas
 pyarrow

@@ -1,0 +1,14 @@
+# Python 3.10-3.12. Install torch first matching your CUDA, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+torch>=2.3
+transformers==4.46.3
+peft==0.13.2
+accelerate==1.1.1
+datasets==3.1.0
+gradio==4.44.1
+scikit-learn
+pandas
+pyarrow
+numpy
+matplotlib
+huggingface_hub

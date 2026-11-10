@@ -424,6 +424,13 @@ Two inclusion criteria lack information in the note, which drives the \emph{unde
 exclusion criterion is judged \emph{not excluded} without any cited sentence, and the application flags it as
 weakly supported. Each card shows the verbatim evidence sentences, the explanation, the raw JSON output and the
 latency. The exported report adds provenance: model, adapter, device, decoding settings, note hash and timestamp.
+The live benchmark tab (Fig.~\ref{fig:app}, bottom) re-runs the three decoders on the local GTX~1650 (4\,GB).
+All three outputs are again token-identical. On a 370-token prompt with 32 output tokens, the KV cache is
+18.2$\times$ faster than the no-cache reference (7.3\,s vs.\ 133.7\,s). That is a much larger gap than on the T4,
+because the 3.07\,GB of weights nearly fill the card and every redundant full-sequence pass is expensive.
+Speculative decoding reaches 0.78$\times$ of KV-cache speed (acceptance 0.63). Here the draft has to run on the CPU
+because both models do not fit in 4\,GB, so the drafting cost is higher still. This is consistent with the T4
+analysis in Section~\ref{sec:spec}.
 \begin{figure}[t]\centering\fig{screenshot_screening.png}{\columnwidth}\\[1mm]\fig{screenshot_evidence.png}{\columnwidth}\\[1mm]\fig{screenshot_benchmark.png}{\columnwidth}
 \caption{Browser application: criterion-level results table (top), evidence-grounded result cards with explanation and raw model output (middle), and live decoding benchmark (bottom).}\label{fig:app}\end{figure}
 
